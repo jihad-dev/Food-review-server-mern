@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const app = express();
+const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const port = process.env.PORT || 5000;
 const dotenv = require("dotenv");
@@ -27,6 +28,34 @@ async function run() {
     const servicesCollection = client.db("FoodReview").collection("services");
     const reviewCollection = client.db("FoodReview").collection("reviews");
 
+    function verifyJwt(req, res, next) {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return res
+          .status(401)
+          .send({ message: "Invalid authorization header" });
+      }
+
+      const token = authHeader.split(" ")[1];
+      jwt.verify(token, process.env.ACCESS_TOKEN, function (err, decoded) {
+        if (err) {
+          return res.status(401).send({ message: "Invalid authorization" });
+        }
+        req.decoded = decoded;
+        next();
+      });
+    }
+
+    // jwt authorization
+    app.post("/jwt", async (req, res) => {
+      const user = req.body;
+      console.log(user);
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN, {
+        expiresIn: "1h",
+      });
+      res.send({ token });
+    });
+
     app.get("/services", async (req, res) => {
       const query = {};
       const result = await servicesCollection.find(query).toArray();
@@ -48,8 +77,8 @@ async function run() {
       res.send(result);
     });
 
-    // query by email address
-    app.get("/reviews", async (req, res) => {
+    // query by email address in the order specified
+    app.get("/reviews", verifyJwt , async (req, res) => {
       let query = {};
       if (req.query.email) {
         query = {
@@ -75,7 +104,7 @@ async function run() {
       res.send(result);
     });
 
-    //
+    // query by _id and return results from the service
     app.get("/reviews/:id", async (req, res) => {
       const query = { _id: new ObjectId(req.params.id) };
       const result = await reviewCollection.findOne(query);
@@ -89,11 +118,15 @@ async function run() {
       const user = req.body;
       const option = { upsert: true };
       const updatedUser = {
-        $set:{
+        $set: {
           name: user.name,
-        }
-      }
-      const result = await reviewCollection.updateOne(filter,updatedUser,option);
+        },
+      };
+      const result = await reviewCollection.updateOne(
+        filter,
+        updatedUser,
+        option
+      );
       res.send(result);
     });
 
